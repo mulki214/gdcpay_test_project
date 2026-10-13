@@ -98,9 +98,15 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
   /tasks:
     post:
-      summary: Create a task for the authenticated user
+      summary: Create a task idempotently for the authenticated user
       tags: [Tasks]
       security: [{ bearerAuth: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          description: UUID scoped to the authenticated user; a replay within 24 hours returns the original task response.
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -114,7 +120,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Task' }
         '400':
-          description: Invalid request
+          description: Invalid request or Idempotency-Key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: The key was already used with a different request body
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }

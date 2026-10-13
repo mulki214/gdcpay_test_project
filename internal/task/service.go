@@ -2,13 +2,17 @@ package task
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type Repository interface {
 	Create(context.Context, Task) (Task, error)
+	CreateIdempotent(context.Context, Task, uuid.UUID, [sha256.Size]byte, time.Time) (Task, error)
 	List(context.Context, uuid.UUID, ListFilter) ([]Task, int64, error)
 	GetByID(context.Context, uuid.UUID, uuid.UUID) (Task, error)
 	Update(context.Context, uuid.UUID, uuid.UUID, UpdateInput) (Task, error)
@@ -17,15 +21,25 @@ type Repository interface {
 
 type Service struct {
 	repository Repository
+	now        func() time.Time
 }
 
+const IdempotencyTTL = 24 * time.Hour
+
 func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+	return NewServiceWithClock(repository, time.Now)
+}
+
+func NewServiceWithClock(repository Repository, now func() time.Time) *Service {
+	if now == nil {
+		now = time.Now
+	}
+	return &Service{repository: repository, now: now}
 }
 
 func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, input CreateInput) (Task, error) {
-	input.Title = strings.TrimSpace(input.Title)
-	if input.Title == "" || len(input.Title) > 200 || len(input.Description) > 5000 {
+	input, err := normalizeCreateInput(input)
+	if err != nil {
 		return Task{}, ErrInvalidInput
 	}
 	return s.repository.Create(ctx, Task{
@@ -35,6 +49,33 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, input CreateInp
 		Description: input.Description,
 		Status:      StatusPending,
 	})
+}
+
+func (s *Service) CreateIdempotent(ctx context.Context, ownerID, key uuid.UUID, input CreateInput) (Task, error) {
+	input, err := normalizeCreateInput(input)
+	if err != nil {
+		return Task{}, ErrInvalidInput
+	}
+	requestBody, err := json.Marshal(input)
+	if err != nil {
+		return Task{}, err
+	}
+	requestHash := sha256.Sum256(requestBody)
+	return s.repository.CreateIdempotent(ctx, Task{
+		ID:          uuid.New(),
+		OwnerID:     ownerID,
+		Title:       input.Title,
+		Description: input.Description,
+		Status:      StatusPending,
+	}, key, requestHash, s.now().Add(IdempotencyTTL))
+}
+
+func normalizeCreateInput(input CreateInput) (CreateInput, error) {
+	input.Title = strings.TrimSpace(input.Title)
+	if input.Title == "" || len(input.Title) > 200 || len(input.Description) > 5000 {
+		return CreateInput{}, ErrInvalidInput
+	}
+	return input, nil
 }
 
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID, filter ListFilter) (Page, error) {

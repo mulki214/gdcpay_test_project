@@ -91,12 +91,13 @@ curl -i "$API_URL/ready"
 curl -i "$API_URL/openapi.yaml"
 ```
 
-Untuk mencoba alur register/login dan seluruh CRUD task, siapkan `jq` dan jalankan di shell lokal. Email dibuat unik setiap kali skrip dijalankan.
+Untuk mencoba alur register/login dan seluruh CRUD task, siapkan `jq` dan `uuidgen`, lalu jalankan di shell lokal. Email dan idempotency key dibuat unik setiap kali skrip dijalankan.
 
 ```sh
 API_URL="https://gdcpay-test-project.onrender.com"
 TEST_EMAIL="gdcpay-live-$(date +%s)@example.com"
 TEST_PASSWORD="replace-with-a-test-only-password"
+IDEMPOTENCY_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 
 curl -fsS -X POST "$API_URL/auth/register" \
   -H 'Content-Type: application/json' \
@@ -108,6 +109,7 @@ API_TOKEN="$(curl -fsS -X POST "$API_URL/auth/login" \
 
 CREATE_RESPONSE="$(curl -fsS -X POST "$API_URL/tasks" \
   -H "Authorization: Bearer $API_TOKEN" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"title":"Production smoke test","description":"Temporary test task"}')"
 TASK_ID="$(printf '%s' "$CREATE_RESPONSE" | jq -r '.id')"
@@ -132,7 +134,7 @@ Variabel `API_TOKEN` hanya berada di shell lokal; jangan tampilkan di log, commi
 | `GET` | `/ready` | Readiness check; memeriksa koneksi PostgreSQL |
 | `POST` | `/auth/register` | Membuat akun dan mengembalikan JWT |
 | `POST` | `/auth/login` | Memvalidasi akun dan mengembalikan JWT |
-| `POST` | `/tasks` | Membuat task untuk pengguna terautentikasi |
+| `POST` | `/tasks` | Membuat task secara idempotent; wajib menyertakan header `Idempotency-Key` berformat UUID |
 | `GET` | `/tasks` | Daftar task milik pengguna; mendukung filter status, pencarian judul, dan pagination |
 | `GET` | `/tasks/{id}` | Detail task milik pengguna |
 | `PUT` | `/tasks/{id}` | Memperbarui judul, deskripsi, dan status task |
@@ -149,12 +151,15 @@ curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 curl -i -X POST http://localhost:8080/auth/register -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
 curl -i -X POST http://localhost:8080/auth/login -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
-curl -i -X POST http://localhost:8080/tasks -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"title":"Prepare report","description":"Quarterly summary"}'
+IDEMPOTENCY_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+curl -i -X POST http://localhost:8080/tasks -H 'Authorization: Bearer <token>' -H "Idempotency-Key: $IDEMPOTENCY_KEY" -H 'Content-Type: application/json' -d '{"title":"Prepare report","description":"Quarterly summary"}'
 curl -i 'http://localhost:8080/tasks?page=1&limit=20&status=pending&search=report' -H 'Authorization: Bearer <token>'
 curl -i http://localhost:8080/openapi.yaml
 ```
 
 Task baru berstatus `pending`. Status yang tersedia adalah `pending`, `in_progress`, dan `completed`. Query list menerima `page` (default 1), `limit` (default 20, maksimum 100), `status`, dan `search` (pencarian substring judul, tidak peka huruf besar/kecil). Semua endpoint `/tasks` membutuhkan bearer token. Pengguna hanya dapat membaca dan mengubah task miliknya; task pengguna lain diperlakukan sebagai tidak ditemukan.
+
+`POST /tasks` mewajibkan header `Idempotency-Key` berupa UUID. Request berulang dengan key dan payload yang sama dalam 24 jam mengembalikan task yang sama tanpa membuat duplikat. Key yang sama dengan payload berbeda menghasilkan `409 IDEMPOTENCY_KEY_REUSED`. Scope key adalah per pengguna.
 
 Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dalam bentuk bcrypt hash; email dinormalisasi ke huruf kecil. Register mensyaratkan email valid dan password sepanjang 8–72 byte. JWT ditandatangani dengan HS256 dan masa berlakunya diatur oleh `JWT_TTL`.
 
@@ -195,15 +200,15 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | JWT authentication | Selesai | Token HS256 dan middleware reusable; seluruh route task memakai bearer authentication |
 | Create, list, detail, update, delete task | Selesai | `POST/GET /tasks`, `GET/PUT/DELETE /tasks/{id}`; service dan repository PostgreSQL |
 | Filter status, search title, pagination | Selesai | `GET /tasks` menerima status, search, page, dan limit |
-| Idempotency key UUID selama 24 jam | Belum | Tahap idempotency; perlu constraint database dan hasil respons tersimpan |
+| Idempotency key UUID selama 24 jam | Selesai | Header wajib pada `POST /tasks`; hasil dan hash request tersimpan 24 jam dengan unique constraint `(owner_id, idempotency_key)` |
 | Error JSON konsisten, 4xx/5xx, tanpa detail internal | Selesai | Handler API, route 404/405, dan error Swagger memakai format bersama; middleware menangani unhandled error dan panic tanpa mengirim detail internal |
 | Assign dalam satu tim dan transaksi DB | Belum | Tahap assign; model tim/membership dan task logs belum dibuat |
 | Rollback bila langkah assign gagal | Belum | Akan diverifikasi pada implementasi transaksi assign |
 | Notifikasi assign (mock/log) | Belum | Tahap assign |
 | Structured request logging | Selesai | Middleware access log: request ID, method, path, status, latency, level |
-| Unit test tanpa database/service eksternal | Sebagian | Test service autentikasi menggunakan stub; test idempotency sequential dan concurrent menyusul |
+| Unit test tanpa database/service eksternal | Selesai | Test idempotency sequential dan concurrent memakai repository in-memory; test autentikasi juga memakai stub |
 
-Unit test service autentikasi tersedia dan menggunakan repository stub. Unit test middleware dan routing juga memeriksa format error, panic recovery, dan agar detail internal tidak bocor. Jalankan seluruh unit test dengan `go test ./...`.
+Unit test service autentikasi tersedia dan menggunakan repository stub. Test service task memakai repository in-memory untuk memeriksa replay sequential, 64 request bersamaan, penggunaan ulang key dengan payload berbeda, dan expiry dengan clock test yang dapat dimajukan tanpa menunggu 24 jam. Unit test middleware dan routing juga memeriksa format error, panic recovery, dan agar detail internal tidak bocor. Jalankan seluruh unit test dengan `go test ./...`.
 
 ## Pengembangan
 
