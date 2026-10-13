@@ -1,6 +1,8 @@
-# Task Management API
+# Task Management API - Test Case GDCPay
 
 REST API multi-user untuk mengelola task. Backend menggunakan Go dan Gin, dengan PostgreSQL sebagai database.
+
+LIVE URL: `https://gdcpay-test-project.onrender.com`
 
 ## Menjalankan dengan Docker
 
@@ -44,7 +46,7 @@ Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi ta
 
 | Environment variable | Default | Keterangan |
 | --- | --- | --- |
-| `APP_ENV` | `development` | Nama lingkungan aplikasi |
+| `APP_ENV` | `development` | Nama env aplikasi |
 | `HTTP_ADDR` | `:8080` | Alamat bind HTTP server |
 | `PORT` | `8080` di Compose; diberikan platform saat deploy | Port aplikasi; `HTTP_ADDR` jika disetel memiliki prioritas |
 | `DATABASE_URL` | wajib | PostgreSQL connection URL |
@@ -78,16 +80,12 @@ Untuk mengaktifkan deployment Render:
 4. Tambahkan repository variable `RENDER_DEPLOY_ENABLED=true`.
 5. Atur `APP_ENV=production`, `DATABASE_URL`, dan `JWT_SECRET` pada environment Render. Render menyediakan `PORT` secara otomatis.
 
-Pipeline membangun image untuk memastikan Dockerfile valid; Render membangun image dari branch `main` saat deploy hook dipanggil. Langkah deploy hanya mengirim permintaan untuk memulai deployment; status akhirnya tetap perlu dipantau dari dashboard Render.
-
-Free service Render akan tidur setelah 15 menit tanpa trafik, sehingga request pertama setelah idle dapat lambat. Render menyatakan free instance ditujukan untuk pengujian/hobby dan tidak menyarankannya untuk production. Gunakan PostgreSQL managed eksternal; Free PostgreSQL Render kedaluwarsa setelah 30 hari. Paket gratis Supabase juga dapat menjeda project setelah aktivitas rendah. Sesuaikan ekspektasi uptime dan penyimpanan data dengan batas paket gratis.
-
 ### Test live melalui production
 
-Lakukan smoke test pada URL service Render setelah deployment selesai. Ganti `<nama-service>` dengan hostname service yang sebenarnya sebelum menjalankan perintah. Karena test ini memakai database production, gunakan akun dan task khusus pengujian; jangan mengubah atau menghapus data pengguna lain. Jika service tidur, request pertama mungkin perlu waktu untuk membangunkannya.
+Lakukan smoke test pada URL `https://gdcpay-test-project.onrender.com`.
 
 ```sh
-API_URL="https://<nama-service>.onrender.com"
+API_URL="https://gdcpay-test-project.onrender.com"
 curl -i "$API_URL/health"
 curl -i "$API_URL/ready"
 curl -i "$API_URL/openapi.yaml"
@@ -96,7 +94,7 @@ curl -i "$API_URL/openapi.yaml"
 Untuk mencoba alur register/login dan seluruh CRUD task, siapkan `jq` dan jalankan di shell lokal. Email dibuat unik setiap kali skrip dijalankan.
 
 ```sh
-API_URL="https://<nama-service>.onrender.com"
+API_URL="https://gdcpay-test-project.onrender.com"
 TEST_EMAIL="gdcpay-live-$(date +%s)@example.com"
 TEST_PASSWORD="replace-with-a-test-only-password"
 
