@@ -9,9 +9,10 @@ import (
 	"github.com/mulki214/gdcpay_test_project/internal/auth"
 	"github.com/mulki214/gdcpay_test_project/internal/middleware"
 	"github.com/mulki214/gdcpay_test_project/internal/response"
+	"github.com/mulki214/gdcpay_test_project/internal/task"
 )
 
-func NewRouter(db *pgxpool.Pool, authService *auth.Service, logger *slog.Logger) http.Handler {
+func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Service, tokenManager *auth.TokenManager, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -21,10 +22,17 @@ func NewRouter(db *pgxpool.Pool, authService *auth.Service, logger *slog.Logger)
 
 	health := NewHealthHandler(db)
 	authHandler := NewAuthHandler(authService)
+	taskHandler := NewTaskHandler(taskService)
 	router.GET("/health", health.Health)
 	router.GET("/ready", health.Ready)
 	router.POST("/auth/register", authHandler.Register)
 	router.POST("/auth/login", authHandler.Login)
+	tasks := router.Group("/tasks", middleware.JWT(tokenManager))
+	tasks.POST("", taskHandler.Create)
+	tasks.GET("", taskHandler.List)
+	tasks.GET("/:id", taskHandler.Get)
+	tasks.PUT("/:id", taskHandler.Update)
+	tasks.DELETE("/:id", taskHandler.Delete)
 	router.GET("/openapi.yaml", openAPISpec)
 	router.GET("/swagger/*any", swaggerUI)
 	router.NoRoute(func(c *gin.Context) {

@@ -36,7 +36,7 @@ set -a && source .env && set +a
 go run ./cmd/api
 ```
 
-Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi tabel users dijalankan otomatis saat aplikasi mulai.
+Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi tabel users dan tasks dijalankan otomatis saat aplikasi mulai.
 
 ## Konfigurasi
 
@@ -61,6 +61,11 @@ Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi ta
 | `GET` | `/ready` | Readiness check; memeriksa koneksi PostgreSQL |
 | `POST` | `/auth/register` | Membuat akun dan mengembalikan JWT |
 | `POST` | `/auth/login` | Memvalidasi akun dan mengembalikan JWT |
+| `POST` | `/tasks` | Membuat task untuk pengguna terautentikasi |
+| `GET` | `/tasks` | Daftar task milik pengguna; mendukung filter status, pencarian judul, dan pagination |
+| `GET` | `/tasks/{id}` | Detail task milik pengguna |
+| `PUT` | `/tasks/{id}` | Memperbarui judul, deskripsi, dan status task |
+| `DELETE` | `/tasks/{id}` | Menghapus task milik pengguna |
 | `GET` | `/openapi.yaml` | Spesifikasi OpenAPI untuk endpoint yang sudah tersedia |
 | `GET` | `/swagger/` | Swagger UI interaktif |
 
@@ -73,8 +78,12 @@ curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 curl -i -X POST http://localhost:8080/auth/register -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
 curl -i -X POST http://localhost:8080/auth/login -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
+curl -i -X POST http://localhost:8080/tasks -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"title":"Prepare report","description":"Quarterly summary"}'
+curl -i 'http://localhost:8080/tasks?page=1&limit=20&status=pending&search=report' -H 'Authorization: Bearer <token>'
 curl -i http://localhost:8080/openapi.yaml
 ```
+
+Task baru berstatus `pending`. Status yang tersedia adalah `pending`, `in_progress`, dan `completed`. Query list menerima `page` (default 1), `limit` (default 20, maksimum 100), `status`, dan `search` (pencarian substring judul, tidak peka huruf besar/kecil). Semua endpoint `/tasks` membutuhkan bearer token. Pengguna hanya dapat membaca dan mengubah task miliknya; task pengguna lain diperlakukan sebagai tidak ditemukan.
 
 Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dalam bentuk bcrypt hash; email dinormalisasi ke huruf kecil. Register mensyaratkan email valid dan password sepanjang 8–72 byte. JWT ditandatangani dengan HS256 dan masa berlakunya diatur oleh `JWT_TTL`.
 
@@ -83,7 +92,8 @@ Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dala
 - `cmd/api` memuat konfigurasi, menyiapkan koneksi PostgreSQL dan logger, lalu menjalankan HTTP server.
 - `internal/config` membaca konfigurasi environment.
 - `internal/auth` menangani aturan register/login, hashing password, dan penerbitan/verifikasi JWT.
-- `internal/repository/postgres` mengimplementasikan akses data PostgreSQL untuk autentikasi.
+- `internal/task` berisi aturan bisnis dan validasi task.
+- `internal/repository/postgres` mengimplementasikan akses data PostgreSQL untuk autentikasi dan task.
 - `internal/database/migrations` menyimpan migrasi SQL yang di-embed ke binary dan dijalankan saat startup.
 - `internal/httpapi` merangkai routes dan handler HTTP.
 - `internal/middleware` menyediakan request ID, structured access log, panic recovery, dan JWT bearer authentication reusable.
@@ -99,17 +109,17 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Requirement | Status | Lokasi atau bukti verifikasi |
 | --- | --- | --- |
 | Go backend dan framework Gin | Selesai | `go.mod`, `cmd/api`, `internal/httpapi` |
-| PostgreSQL | Sebagian | Pool, migrasi, tabel users, repository autentikasi, dan readiness tersedia; skema task menyusul |
+| PostgreSQL | Sebagian | Pool, migrasi, tabel users/tasks, repository autentikasi dan task, serta readiness tersedia; fitur idempotency dan assign menyusul |
 | Docker deployment | Sebagian | `Dockerfile`, `compose.yaml`; deployment image perlu dikonfigurasi sesuai platform |
 | Health check | Selesai | `GET /health` |
 | Readiness check termasuk PostgreSQL | Selesai | `GET /ready` |
-| Dokumentasi Swagger/OpenAPI untuk semua API | Sebagian | `/swagger/` dan `/openapi.yaml` saat ini mencakup endpoint fondasi; API fitur akan ditambahkan saat dibuat |
+| Dokumentasi Swagger/OpenAPI untuk semua API | Sebagian | `/swagger/` dan `/openapi.yaml` mencakup health, auth, dan CRUD task; dokumentasi API fitur berikutnya menyusul |
 | README: cara menjalankan, endpoint, arsitektur | Selesai | Bagian di atas |
 | README: checklist keterpenuhan seluruh requirement | Selesai | Tabel checklist ini |
 | Register dan login | Selesai | `POST /auth/register`, `POST /auth/login`; service dan repository auth |
-| JWT authentication | Sebagian | Token HS256 diterbitkan dan middleware reusable memvalidasi bearer token; route task terlindungi menyusul |
-| Create, list, detail, update, delete task | Belum | Tahap CRUD task |
-| Filter status, search title, pagination | Belum | Tahap list task |
+| JWT authentication | Selesai | Token HS256 dan middleware reusable; seluruh route task memakai bearer authentication |
+| Create, list, detail, update, delete task | Selesai | `POST/GET /tasks`, `GET/PUT/DELETE /tasks/{id}`; service dan repository PostgreSQL |
+| Filter status, search title, pagination | Selesai | `GET /tasks` menerima status, search, page, dan limit |
 | Idempotency key UUID selama 24 jam | Belum | Tahap idempotency; perlu constraint database dan hasil respons tersimpan |
 | Error JSON konsisten, 4xx/5xx, tanpa detail internal | Sebagian | Error routing, readiness, panic, register, dan login memakai format bersama; error fitur menyusul |
 | Assign dalam satu tim dan transaksi DB | Belum | Tahap assign; model tim/membership dan task logs belum dibuat |

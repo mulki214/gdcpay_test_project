@@ -95,6 +95,118 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /tasks:
+    post:
+      summary: Create a task for the authenticated user
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+            example: { title: Prepare report, description: Quarterly summary }
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    get:
+      summary: List the authenticated user's tasks
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { in: query, name: status, schema: { type: string, enum: [pending, in_progress, completed] } }
+        - { in: query, name: search, description: Case-insensitive title substring, schema: { type: string, maxLength: 200 } }
+      responses:
+        '200':
+          description: Page of tasks
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskPage' }
+        '400':
+          description: Invalid filters
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /tasks/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Get a task owned by the authenticated user
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400':
+          description: Invalid task ID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    put:
+      summary: Replace editable task fields
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTaskRequest' }
+            example: { title: Prepare report, description: Final draft, status: in_progress }
+      responses:
+        '200':
+          description: Task updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      summary: Delete a task owned by the authenticated user
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Task deleted }
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
   /ready:
     get:
       summary: Check application readiness and database connectivity
@@ -143,6 +255,37 @@ components:
         access_token: { type: string, description: JWT bearer token }
         token_type: { type: string, example: Bearer }
         expires_at: { type: string, format: date-time }
+    CreateTaskRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+    UpdateTaskRequest:
+      type: object
+      required: [title, status]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        status: { type: string, enum: [pending, in_progress, completed] }
+    Task:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid }
+        assignee_id: { type: string, format: uuid, nullable: true }
+        title: { type: string, example: Prepare report }
+        description: { type: string, example: Quarterly summary }
+        status: { type: string, enum: [pending, in_progress, completed] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TaskPage:
+      type: object
+      properties:
+        tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, format: int64, example: 42 }
     ErrorResponse:
       type: object
       required: [status, code, message, timestamp]
