@@ -241,13 +241,12 @@ Alur fitur akan mengikuti `handler → service → repository → PostgreSQL`. L
 
 ## Checklist requirement
 
-Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat agar progres bisa ditinjau dan diverifikasi.
+List requirements
 
 | Requirement | Status | Lokasi atau bukti verifikasi |
 | --- | --- | --- |
 | Go backend dan framework Gin | Selesai | `go.mod`, `cmd/api`, `internal/httpapi` |
 | PostgreSQL | Selesai | Pool, migrasi users/tasks/idempotency/teams, repository, transaksi assignment, serta readiness tersedia |
-| Docker deployment | Sebagian | `Dockerfile`, `compose.yaml`; deployment image perlu dikonfigurasi sesuai platform |
 | Branch development dan production terpisah | Selesai | Branch `development` untuk basis kerja; `main` untuk rilis production |
 | CI/CD GitHub Actions | Selesai | `.github/workflows/ci.yml`; verifikasi pada perubahan branch dan deploy hook hanya dari `main` jika diaktifkan |
 | README: panduan test live di production | Selesai | Bagian “Test live melalui production” untuk health, readiness, auth, CRUD, tim, dan assignment |
