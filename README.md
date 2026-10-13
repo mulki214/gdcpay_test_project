@@ -46,11 +46,10 @@ Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi ta
 | --- | --- | --- |
 | `APP_ENV` | `development` | Nama lingkungan aplikasi |
 | `HTTP_ADDR` | `:8080` | Alamat bind HTTP server |
-| `PORT` | `8080` | Fallback port yang digunakan platform hosting; `HTTP_ADDR` jika disetel memiliki prioritas |
+| `PORT` | `8080` di Compose; diberikan platform saat deploy | Port aplikasi; `HTTP_ADDR` jika disetel memiliki prioritas |
 | `DATABASE_URL` | wajib | PostgreSQL connection URL |
 | `JWT_SECRET` | wajib, minimum 32 byte | Secret untuk menandatangani JWT |
 | `JWT_TTL` | `15m` | Masa berlaku access token, format Go duration |
-| `PORT` | `8080` | Port host yang dipetakan Compose dan fallback port aplikasi |
 | `POSTGRES_PORT` | `5432` | Port PostgreSQL yang dipetakan ke host |
 | `POSTGRES_DB` | `taskapp` | Nama database Compose |
 | `POSTGRES_USER` | `taskapp` | User PostgreSQL Compose |
@@ -69,7 +68,7 @@ Jangan menyimpan `DATABASE_URL` produksi atau `JWT_SECRET` produksi di repositor
 
 `development` dibuat dari `main` sebagai branch dasar pengembangan. Untuk setiap perubahan, buat branch `feature/<nama>` atau `fix/<nama>` dari `development`, uji di lokal, lalu gabungkan ke `development`. Setelah siap dirilis, gabungkan `development` ke `main`.
 
-Workflow di `.github/workflows/ci.yml` menjalankan `go test ./...` dan membangun Docker image pada push serta pull request ke `development`/`main`. Deployment hanya dipicu oleh push ke `main`, dan hanya jika variable repository `RENDER_DEPLOY_ENABLED` bernilai `true`.
+Workflow di `.github/workflows/ci.yml` menjalankan `go test ./...` dan membangun Docker image pada push ke `development`, `main`, `feature/*`, atau `fix/*`, serta pull request ke `development`/`main`. Deployment hanya dipicu oleh push ke `main`, setelah job verifikasi berhasil, dan hanya jika variable repository `RENDER_DEPLOY_ENABLED` bernilai `true`. Pull request ke `main` menjalankan verifikasi, tetapi belum men-deploy.
 
 Untuk mengaktifkan deployment Render:
 
@@ -82,6 +81,50 @@ Untuk mengaktifkan deployment Render:
 Pipeline membangun image untuk memastikan Dockerfile valid; Render membangun image dari branch `main` saat deploy hook dipanggil. Langkah deploy hanya mengirim permintaan untuk memulai deployment; status akhirnya tetap perlu dipantau dari dashboard Render.
 
 Free service Render akan tidur setelah 15 menit tanpa trafik, sehingga request pertama setelah idle dapat lambat. Render menyatakan free instance ditujukan untuk pengujian/hobby dan tidak menyarankannya untuk production. Gunakan PostgreSQL managed eksternal; Free PostgreSQL Render kedaluwarsa setelah 30 hari. Paket gratis Supabase juga dapat menjeda project setelah aktivitas rendah. Sesuaikan ekspektasi uptime dan penyimpanan data dengan batas paket gratis.
+
+### Test live melalui production
+
+Lakukan smoke test pada URL service Render setelah deployment selesai. Ganti `<nama-service>` dengan hostname service yang sebenarnya sebelum menjalankan perintah. Karena test ini memakai database production, gunakan akun dan task khusus pengujian; jangan mengubah atau menghapus data pengguna lain. Jika service tidur, request pertama mungkin perlu waktu untuk membangunkannya.
+
+```sh
+API_URL="https://<nama-service>.onrender.com"
+curl -i "$API_URL/health"
+curl -i "$API_URL/ready"
+curl -i "$API_URL/openapi.yaml"
+```
+
+Untuk mencoba alur register/login dan seluruh CRUD task, siapkan `jq` dan jalankan di shell lokal. Email dibuat unik setiap kali skrip dijalankan.
+
+```sh
+API_URL="https://<nama-service>.onrender.com"
+TEST_EMAIL="gdcpay-live-$(date +%s)@example.com"
+TEST_PASSWORD="replace-with-a-test-only-password"
+
+curl -fsS -X POST "$API_URL/auth/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}"
+
+API_TOKEN="$(curl -fsS -X POST "$API_URL/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$TEST_EMAIL\",\"password\":\"$TEST_PASSWORD\"}" | jq -r '.access_token')"
+
+CREATE_RESPONSE="$(curl -fsS -X POST "$API_URL/tasks" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Production smoke test","description":"Temporary test task"}')"
+TASK_ID="$(printf '%s' "$CREATE_RESPONSE" | jq -r '.id')"
+printf '%s\n' "$CREATE_RESPONSE"
+
+curl -fsS "$API_URL/tasks?page=1&limit=20" -H "Authorization: Bearer $API_TOKEN"
+curl -fsS "$API_URL/tasks/$TASK_ID" -H "Authorization: Bearer $API_TOKEN"
+curl -fsS -X PUT "$API_URL/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Production smoke test updated","description":"Temporary test task","status":"in_progress"}'
+curl -i -X DELETE "$API_URL/tasks/$TASK_ID" -H "Authorization: Bearer $API_TOKEN"
+```
+
+Variabel `API_TOKEN` hanya berada di shell lokal; jangan tampilkan di log, commit, atau bagikan. Contoh tersebut hanya menghapus task yang dibuat oleh smoke test ini. Periksa status CI di GitHub Actions dan status akhir deployment di dashboard Render, karena respons deploy hook hanya menandakan bahwa deployment diminta.
 
 ## Endpoint yang tersedia
 
@@ -144,6 +187,7 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Docker deployment | Sebagian | `Dockerfile`, `compose.yaml`; deployment image perlu dikonfigurasi sesuai platform |
 | Branch development dan production terpisah | Selesai | Branch `development` untuk basis kerja; `main` untuk rilis production |
 | CI/CD GitHub Actions | Selesai | `.github/workflows/ci.yml`; verifikasi pada perubahan branch dan deploy hook hanya dari `main` jika diaktifkan |
+| README: panduan test live di production | Selesai | Bagian “Test live melalui production” untuk health, readiness, auth, dan CRUD |
 | Health check | Selesai | `GET /health` |
 | Readiness check termasuk PostgreSQL | Selesai | `GET /ready` |
 | Dokumentasi Swagger/OpenAPI untuk semua API | Sebagian | `/swagger/` dan `/openapi.yaml` mencakup health, auth, dan CRUD task; dokumentasi API fitur berikutnya menyusul |
