@@ -196,14 +196,14 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Create, list, detail, update, delete task | Selesai | `POST/GET /tasks`, `GET/PUT/DELETE /tasks/{id}`; service dan repository PostgreSQL |
 | Filter status, search title, pagination | Selesai | `GET /tasks` menerima status, search, page, dan limit |
 | Idempotency key UUID selama 24 jam | Belum | Tahap idempotency; perlu constraint database dan hasil respons tersimpan |
-| Error JSON konsisten, 4xx/5xx, tanpa detail internal | Sebagian | Error routing, readiness, panic, register, dan login memakai format bersama; error fitur menyusul |
+| Error JSON konsisten, 4xx/5xx, tanpa detail internal | Selesai | Handler API, route 404/405, dan error Swagger memakai format bersama; middleware menangani unhandled error dan panic tanpa mengirim detail internal |
 | Assign dalam satu tim dan transaksi DB | Belum | Tahap assign; model tim/membership dan task logs belum dibuat |
 | Rollback bila langkah assign gagal | Belum | Akan diverifikasi pada implementasi transaksi assign |
 | Notifikasi assign (mock/log) | Belum | Tahap assign |
 | Structured request logging | Selesai | Middleware access log: request ID, method, path, status, latency, level |
 | Unit test tanpa database/service eksternal | Sebagian | Test service autentikasi menggunakan stub; test idempotency sequential dan concurrent menyusul |
 
-Unit test service autentikasi tersedia dan menggunakan repository stub. Jalankan seluruh unit test dengan `go test ./...`.
+Unit test service autentikasi tersedia dan menggunakan repository stub. Unit test middleware dan routing juga memeriksa format error, panic recovery, dan agar detail internal tidak bocor. Jalankan seluruh unit test dengan `go test ./...`.
 
 ## Pengembangan
 

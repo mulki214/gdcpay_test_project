@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mulki214/gdcpay_test_project/internal/response"
 )
 
 const openAPIDocument = `openapi: 3.0.3
@@ -302,7 +303,7 @@ func openAPISpec(c *gin.Context) {
 
 func swaggerUI(c *gin.Context) {
 	if c.Param("any") != "/" && c.Param("any") != "/index.html" {
-		c.Status(http.StatusNotFound)
+		response.WriteError(c, http.StatusNotFound, "NOT_FOUND", "The requested resource was not found")
 		return
 	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(`<!doctype html>

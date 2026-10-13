@@ -18,7 +18,7 @@ func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Se
 	}
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
-	router.Use(middleware.RequestID(), middleware.AccessLog(logger), middleware.Recovery(logger))
+	router.Use(middleware.RequestID(), middleware.AccessLog(logger), middleware.Recovery(logger), middleware.ErrorHandler())
 
 	health := NewHealthHandler(db)
 	authHandler := NewAuthHandler(authService)
