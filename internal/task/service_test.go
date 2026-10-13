@@ -113,10 +113,25 @@ func TestCreateIdempotentExpiresWithoutWaitingForTTL(t *testing.T) {
 	}
 }
 
+func TestAssignRejectsTheTaskOwnerAsAssignee(t *testing.T) {
+	repository := newMemoryTaskRepository()
+	service := NewService(repository)
+	ownerID := uuid.New()
+
+	_, err := service.Assign(context.Background(), ownerID, uuid.New(), ownerID)
+	if !errors.Is(err, ErrInvalidAssignee) {
+		t.Fatalf("assign error = %v, want %v", err, ErrInvalidAssignee)
+	}
+	if repository.assignmentCount() != 0 {
+		t.Fatal("repository was called for a self-assignment")
+	}
+}
+
 type memoryTaskRepository struct {
-	mu      sync.Mutex
-	items   map[memoryIdempotencyKey]memoryIdempotencyRecord
-	created int
+	mu       sync.Mutex
+	items    map[memoryIdempotencyKey]memoryIdempotencyRecord
+	created  int
+	assigned int
 }
 
 type memoryIdempotencyKey struct {
@@ -172,6 +187,13 @@ func (r *memoryTaskRepository) Update(context.Context, uuid.UUID, uuid.UUID, Upd
 	return Task{}, ErrNotFound
 }
 
+func (r *memoryTaskRepository) Assign(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.assigned++
+	return Task{}, ErrNotFound
+}
+
 func (r *memoryTaskRepository) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	return ErrNotFound
 }
@@ -180,4 +202,10 @@ func (r *memoryTaskRepository) createdCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.created
+}
+
+func (r *memoryTaskRepository) assignmentCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.assigned
 }

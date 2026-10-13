@@ -10,9 +10,10 @@ import (
 	"github.com/mulki214/gdcpay_test_project/internal/middleware"
 	"github.com/mulki214/gdcpay_test_project/internal/response"
 	"github.com/mulki214/gdcpay_test_project/internal/task"
+	"github.com/mulki214/gdcpay_test_project/internal/team"
 )
 
-func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Service, tokenManager *auth.TokenManager, logger *slog.Logger) http.Handler {
+func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Service, teamService *team.Service, tokenManager *auth.TokenManager, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -22,7 +23,8 @@ func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Se
 
 	health := NewHealthHandler(db)
 	authHandler := NewAuthHandler(authService)
-	taskHandler := NewTaskHandler(taskService)
+	taskHandler := NewTaskHandler(taskService, logger)
+	teamHandler := NewTeamHandler(teamService)
 	router.GET("/health", health.Health)
 	router.GET("/ready", health.Ready)
 	router.POST("/auth/register", authHandler.Register)
@@ -33,6 +35,10 @@ func NewRouter(db *pgxpool.Pool, authService *auth.Service, taskService *task.Se
 	tasks.GET("/:id", taskHandler.Get)
 	tasks.PUT("/:id", taskHandler.Update)
 	tasks.DELETE("/:id", taskHandler.Delete)
+	tasks.POST("/:id/assign", taskHandler.Assign)
+	teams := router.Group("/teams", middleware.JWT(tokenManager))
+	teams.POST("", teamHandler.Create)
+	teams.POST("/:id/members", teamHandler.AddMember)
 	router.GET("/openapi.yaml", openAPISpec)
 	router.GET("/swagger/*any", swaggerUI)
 	router.NoRoute(func(c *gin.Context) {

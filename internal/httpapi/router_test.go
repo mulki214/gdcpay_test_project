@@ -12,7 +12,7 @@ import (
 )
 
 func TestRouterReturnsStructuredErrorsForRoutingFailures(t *testing.T) {
-	router := NewRouter(nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := NewRouter(nil, nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	tests := []struct {
 		name       string
 		method     string

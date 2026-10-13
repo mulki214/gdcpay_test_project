@@ -18,6 +18,7 @@ import (
 	"github.com/mulki214/gdcpay_test_project/internal/httpapi"
 	"github.com/mulki214/gdcpay_test_project/internal/repository/postgres"
 	"github.com/mulki214/gdcpay_test_project/internal/task"
+	"github.com/mulki214/gdcpay_test_project/internal/team"
 )
 
 func main() {
@@ -53,10 +54,11 @@ func main() {
 	}
 	authService := auth.NewService(postgres.NewAuthRepository(pool), auth.BcryptHasher{}, tokenManager)
 	taskService := task.NewService(postgres.NewTaskRepository(pool))
+	teamService := team.NewService(postgres.NewTeamRepository(pool))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(pool, authService, taskService, tokenManager, logger),
+		Handler:           httpapi.NewRouter(pool, authService, taskService, teamService, tokenManager, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

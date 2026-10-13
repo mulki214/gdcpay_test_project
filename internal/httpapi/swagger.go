@@ -219,6 +219,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /tasks/{id}/assign:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Assign the task to a user in the owner's team
+      tags: [Tasks]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignTaskRequest' }
+            example: { assignee_id: 3d51bf1b-33c1-49a8-a6cc-58fc47897d4a }
+      responses:
+        '200':
+          description: Task assigned; history and notification event recorded atomically
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400':
+          description: Invalid task ID or assignee
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '403':
+          description: Assignee is not in a team shared with the task owner
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          description: Assignment could not be completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
   /ready:
     get:
       summary: Check application readiness and database connectivity
@@ -243,6 +287,82 @@ paths:
                   code: { type: string, example: DATABASE_UNAVAILABLE }
                   message: { type: string, example: The service is not ready }
                   timestamp: { type: string, format: date-time }
+  /teams:
+    post:
+      summary: Create a team and make the authenticated user its owner
+      tags: [Teams]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTeamRequest' }
+            example: { name: Product Team }
+      responses:
+        '201':
+          description: Team created and owner membership recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '400':
+          description: Invalid team name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          description: Team could not be created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /teams/{id}/members:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Add a registered user to a team as owner
+      tags: [Teams]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddTeamMemberRequest' }
+            example: { email: colleague@example.com }
+      responses:
+        '201':
+          description: Team membership created or already present
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamMember' }
+        '400':
+          description: Invalid team ID or member email
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '403':
+          description: Only the team owner can add members
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Team or registered user not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          description: Team membership could not be created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 components:
   securitySchemes:
     bearerAuth:
@@ -273,6 +393,36 @@ components:
       properties:
         title: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, maxLength: 5000 }
+    CreateTeamRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120, example: Product Team }
+    AddTeamMemberRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email, example: colleague@example.com }
+    AssignTaskRequest:
+      type: object
+      required: [assignee_id]
+      properties:
+        assignee_id: { type: string, format: uuid }
+    Team:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        owner_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+    TeamMember:
+      type: object
+      properties:
+        team_id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string, enum: [owner, member] }
+        created_at: { type: string, format: date-time }
     UpdateTaskRequest:
       type: object
       required: [title, status]

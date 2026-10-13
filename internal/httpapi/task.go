@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,9 +14,17 @@ import (
 	"github.com/mulki214/gdcpay_test_project/internal/task"
 )
 
-type TaskHandler struct{ service *task.Service }
+type TaskHandler struct {
+	service *task.Service
+	logger  *slog.Logger
+}
 
-func NewTaskHandler(service *task.Service) *TaskHandler { return &TaskHandler{service: service} }
+func NewTaskHandler(service *task.Service, logger *slog.Logger) *TaskHandler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &TaskHandler{service: service, logger: logger}
+}
 
 type createTaskRequest struct {
 	Title       string `json:"title" binding:"required"`
@@ -26,6 +35,10 @@ type updateTaskRequest struct {
 	Title       string      `json:"title" binding:"required"`
 	Description string      `json:"description"`
 	Status      task.Status `json:"status" binding:"required"`
+}
+
+type assignTaskRequest struct {
+	AssigneeID uuid.UUID `json:"assignee_id" binding:"required"`
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -106,6 +119,31 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *TaskHandler) Assign(c *gin.Context) {
+	id, ok := taskID(c)
+	if !ok {
+		return
+	}
+	var request assignTaskRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.WriteError(c, http.StatusBadRequest, "INVALID_REQUEST", "A valid assignee_id is required")
+		return
+	}
+	ownerID := authenticatedUserID(c)
+	item, err := h.service.Assign(c.Request.Context(), ownerID, id, request.AssigneeID)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	h.logger.InfoContext(c.Request.Context(), "task assignment notification queued",
+		"request_id", c.GetString(middleware.RequestIDKey),
+		"task_id", item.ID,
+		"actor_id", ownerID,
+		"recipient_user_id", request.AssigneeID,
+	)
+	c.JSON(http.StatusOK, item)
+}
+
 func (h *TaskHandler) writeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, task.ErrInvalidInput):
@@ -114,6 +152,10 @@ func (h *TaskHandler) writeError(c *gin.Context, err error) {
 		response.WriteError(c, http.StatusNotFound, "TASK_NOT_FOUND", "The task was not found")
 	case errors.Is(err, task.ErrIdempotencyKeyReused):
 		response.WriteError(c, http.StatusConflict, "IDEMPOTENCY_KEY_REUSED", "This idempotency key was already used with a different request")
+	case errors.Is(err, task.ErrInvalidAssignee):
+		response.WriteError(c, http.StatusBadRequest, "INVALID_ASSIGNEE", "Assignee must be a different valid user")
+	case errors.Is(err, task.ErrAssigneeNotInTeam):
+		response.WriteError(c, http.StatusForbidden, "ASSIGNEE_NOT_IN_TEAM", "The assignee must belong to a team shared with the task owner")
 	default:
 		response.Internal(c)
 	}

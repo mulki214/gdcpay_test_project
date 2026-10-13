@@ -126,6 +126,55 @@ curl -i -X DELETE "$API_URL/tasks/$TASK_ID" -H "Authorization: Bearer $API_TOKEN
 
 Variabel `API_TOKEN` hanya berada di shell lokal; jangan tampilkan di log, commit, atau bagikan. Contoh tersebut hanya menghapus task yang dibuat oleh smoke test ini. Periksa status CI di GitHub Actions dan status akhir deployment di dashboard Render, karena respons deploy hook hanya menandakan bahwa deployment diminta.
 
+### Test assign task
+
+Alur berikut membuat dua akun sementara, membuat tim, menambahkan akun kedua sebagai anggota, membuat task milik owner, lalu meng-assign task ke anggota. Akun dan data test memakai email unik.
+
+```sh
+API_URL="https://gdcpay-test-project.onrender.com"
+TEST_PASSWORD="replace-with-a-test-only-password"
+TEST_SUFFIX="$(date +%s)"
+OWNER_EMAIL="gdcpay-owner-$TEST_SUFFIX@example.com"
+MEMBER_EMAIL="gdcpay-member-$TEST_SUFFIX@example.com"
+
+OWNER_AUTH="$(curl -fsS -X POST "$API_URL/auth/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$OWNER_EMAIL\",\"password\":\"$TEST_PASSWORD\"}")"
+OWNER_ID="$(printf '%s' "$OWNER_AUTH" | jq -r '.user.id')"
+OWNER_TOKEN="$(printf '%s' "$OWNER_AUTH" | jq -r '.access_token')"
+
+MEMBER_AUTH="$(curl -fsS -X POST "$API_URL/auth/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$MEMBER_EMAIL\",\"password\":\"$TEST_PASSWORD\"}")"
+MEMBER_ID="$(printf '%s' "$MEMBER_AUTH" | jq -r '.user.id')"
+
+TEAM="$(curl -fsS -X POST "$API_URL/teams" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Assignment smoke test"}')"
+TEAM_ID="$(printf '%s' "$TEAM" | jq -r '.id')"
+
+curl -fsS -X POST "$API_URL/teams/$TEAM_ID/members" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$MEMBER_EMAIL\"}"
+
+IDEMPOTENCY_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+TASK="$(curl -fsS -X POST "$API_URL/tasks" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Assignment smoke test","description":"Temporary test task"}')"
+TASK_ID="$(printf '%s' "$TASK" | jq -r '.id')"
+
+curl -fsS -X POST "$API_URL/tasks/$TASK_ID/assign" \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"assignee_id\":\"$MEMBER_ID\"}" | jq '{id, owner_id, assignee_id}'
+```
+
+Hasil assign harus menampilkan `assignee_id` yang sama dengan `MEMBER_ID`. Untuk mencoba penolakan, gunakan `assignee_id` dari akun yang belum ditambahkan ke tim; API mengembalikan `403 ASSIGNEE_NOT_IN_TEAM`. Smoke test ini membuat data di database production, jadi gunakan hanya akun test.
+
 ## Endpoint yang tersedia
 
 | Method | Path | Fungsi |
@@ -134,11 +183,14 @@ Variabel `API_TOKEN` hanya berada di shell lokal; jangan tampilkan di log, commi
 | `GET` | `/ready` | Readiness check; memeriksa koneksi PostgreSQL |
 | `POST` | `/auth/register` | Membuat akun dan mengembalikan JWT |
 | `POST` | `/auth/login` | Memvalidasi akun dan mengembalikan JWT |
+| `POST` | `/teams` | Membuat tim; pengguna terautentikasi menjadi owner |
+| `POST` | `/teams/{id}/members` | Owner menambahkan pengguna terdaftar berdasarkan email |
 | `POST` | `/tasks` | Membuat task secara idempotent; wajib menyertakan header `Idempotency-Key` berformat UUID |
 | `GET` | `/tasks` | Daftar task milik pengguna; mendukung filter status, pencarian judul, dan pagination |
 | `GET` | `/tasks/{id}` | Detail task milik pengguna |
 | `PUT` | `/tasks/{id}` | Memperbarui judul, deskripsi, dan status task |
 | `DELETE` | `/tasks/{id}` | Menghapus task milik pengguna |
+| `POST` | `/tasks/{id}/assign` | Pemilik task meng-assign kepada anggota tim yang sama |
 | `GET` | `/openapi.yaml` | Spesifikasi OpenAPI untuk endpoint yang sudah tersedia |
 | `GET` | `/swagger/` | Swagger UI interaktif |
 
@@ -151,9 +203,16 @@ curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 curl -i -X POST http://localhost:8080/auth/register -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
 curl -i -X POST http://localhost:8080/auth/login -H 'Content-Type: application/json' -d '{"email":"user@example.com","password":"correct-horse-battery"}'
+API_TOKEN="<token>"
+TEAM_ID="<team-uuid>"
+TASK_ID="<task-uuid>"
+MEMBER_USER_ID="<member-user-uuid>"
 IDEMPOTENCY_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 curl -i -X POST http://localhost:8080/tasks -H 'Authorization: Bearer <token>' -H "Idempotency-Key: $IDEMPOTENCY_KEY" -H 'Content-Type: application/json' -d '{"title":"Prepare report","description":"Quarterly summary"}'
 curl -i 'http://localhost:8080/tasks?page=1&limit=20&status=pending&search=report' -H 'Authorization: Bearer <token>'
+curl -i -X POST http://localhost:8080/teams -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{"name":"Product Team"}'
+curl -i -X POST "http://localhost:8080/teams/$TEAM_ID/members" -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d '{"email":"colleague@example.com"}'
+curl -i -X POST "http://localhost:8080/tasks/$TASK_ID/assign" -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' -d "{\"assignee_id\":\"$MEMBER_USER_ID\"}"
 curl -i http://localhost:8080/openapi.yaml
 ```
 
@@ -161,7 +220,7 @@ Task baru berstatus `pending`. Status yang tersedia adalah `pending`, `in_progre
 
 `POST /tasks` mewajibkan header `Idempotency-Key` berupa UUID. Request berulang dengan key dan payload yang sama dalam 24 jam mengembalikan task yang sama tanpa membuat duplikat. Key yang sama dengan payload berbeda menghasilkan `409 IDEMPOTENCY_KEY_REUSED`. Scope key adalah per pengguna.
 
-Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dalam bentuk bcrypt hash; email dinormalisasi ke huruf kecil. Register mensyaratkan email valid dan password sepanjang 8–72 byte. JWT ditandatangani dengan HS256 dan masa berlakunya diatur oleh `JWT_TTL`.
+Seluruh migration database berjalan otomatis ketika API mulai. Password disimpan dalam bentuk bcrypt hash; email dinormalisasi ke huruf kecil. Register mensyaratkan email valid dan password sepanjang 8–72 byte. JWT ditandatangani dengan HS256 dan masa berlakunya diatur oleh `JWT_TTL`.
 
 ## Arsitektur singkat
 
@@ -169,7 +228,8 @@ Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dala
 - `internal/config` membaca konfigurasi environment.
 - `internal/auth` menangani aturan register/login, hashing password, dan penerbitan/verifikasi JWT.
 - `internal/task` berisi aturan bisnis dan validasi task.
-- `internal/repository/postgres` mengimplementasikan akses data PostgreSQL untuk autentikasi dan task.
+- `internal/team` berisi aturan bisnis tim dan keanggotaan.
+- `internal/repository/postgres` mengimplementasikan akses data PostgreSQL untuk autentikasi, tim, dan task.
 - `internal/database/migrations` menyimpan migrasi SQL yang di-embed ke binary dan dijalankan saat startup.
 - `internal/httpapi` merangkai routes dan handler HTTP.
 - `internal/middleware` menyediakan request ID, structured access log, panic recovery, dan JWT bearer authentication reusable.
@@ -186,14 +246,14 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Requirement | Status | Lokasi atau bukti verifikasi |
 | --- | --- | --- |
 | Go backend dan framework Gin | Selesai | `go.mod`, `cmd/api`, `internal/httpapi` |
-| PostgreSQL | Sebagian | Pool, migrasi, tabel users/tasks, repository autentikasi dan task, serta readiness tersedia; fitur idempotency dan assign menyusul |
+| PostgreSQL | Selesai | Pool, migrasi users/tasks/idempotency/teams, repository, transaksi assignment, serta readiness tersedia |
 | Docker deployment | Sebagian | `Dockerfile`, `compose.yaml`; deployment image perlu dikonfigurasi sesuai platform |
 | Branch development dan production terpisah | Selesai | Branch `development` untuk basis kerja; `main` untuk rilis production |
 | CI/CD GitHub Actions | Selesai | `.github/workflows/ci.yml`; verifikasi pada perubahan branch dan deploy hook hanya dari `main` jika diaktifkan |
-| README: panduan test live di production | Selesai | Bagian “Test live melalui production” untuk health, readiness, auth, dan CRUD |
+| README: panduan test live di production | Selesai | Bagian “Test live melalui production” untuk health, readiness, auth, CRUD, tim, dan assignment |
 | Health check | Selesai | `GET /health` |
 | Readiness check termasuk PostgreSQL | Selesai | `GET /ready` |
-| Dokumentasi Swagger/OpenAPI untuk semua API | Sebagian | `/swagger/` dan `/openapi.yaml` mencakup health, auth, dan CRUD task; dokumentasi API fitur berikutnya menyusul |
+| Dokumentasi Swagger/OpenAPI untuk semua API | Selesai | `/swagger/` dan `/openapi.yaml` mencakup health, auth, task, team, dan assignment |
 | README: cara menjalankan, endpoint, arsitektur | Selesai | Bagian di atas |
 | README: checklist keterpenuhan seluruh requirement | Selesai | Tabel checklist ini |
 | Register dan login | Selesai | `POST /auth/register`, `POST /auth/login`; service dan repository auth |
@@ -202,13 +262,15 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Filter status, search title, pagination | Selesai | `GET /tasks` menerima status, search, page, dan limit |
 | Idempotency key UUID selama 24 jam | Selesai | Header wajib pada `POST /tasks`; hasil dan hash request tersimpan 24 jam dengan unique constraint `(owner_id, idempotency_key)` |
 | Error JSON konsisten, 4xx/5xx, tanpa detail internal | Selesai | Handler API, route 404/405, dan error Swagger memakai format bersama; middleware menangani unhandled error dan panic tanpa mengirim detail internal |
-| Assign dalam satu tim dan transaksi DB | Belum | Tahap assign; model tim/membership dan task logs belum dibuat |
-| Rollback bila langkah assign gagal | Belum | Akan diverifikasi pada implementasi transaksi assign |
-| Notifikasi assign (mock/log) | Belum | Tahap assign |
+| Tim dan membership untuk validasi penerima assign | Selesai | `teams`, `team_members`; owner membuat tim dan menambahkan pengguna terdaftar |
+| Assign task dalam tim yang sama | Selesai | `POST /tasks/{id}/assign`; pemilik task hanya dapat memilih anggota di tim bersama |
+| Database transaction dan riwayat assign | Selesai | Update assignee dan insert `task_logs` memakai satu transaksi PostgreSQL |
+| Rollback bila langkah assign gagal | Selesai | Kegagalan tulis task log atau notifikasi membatalkan transaksi assignment |
+| Notifikasi assign (mock/log) | Selesai | Event notifikasi dicatat ke `task_notifications` dalam transaksi, lalu dicatat structured log setelah commit |
 | Structured request logging | Selesai | Middleware access log: request ID, method, path, status, latency, level |
-| Unit test tanpa database/service eksternal | Selesai | Test idempotency sequential dan concurrent memakai repository in-memory; test autentikasi juga memakai stub |
+| Unit test tanpa database/service eksternal | Selesai | Test idempotency memakai repository in-memory; test assignment memakai transaction stub untuk membuktikan rollback |
 
-Unit test service autentikasi tersedia dan menggunakan repository stub. Test service task memakai repository in-memory untuk memeriksa replay sequential, 64 request bersamaan, penggunaan ulang key dengan payload berbeda, dan expiry dengan clock test yang dapat dimajukan tanpa menunggu 24 jam. Unit test middleware dan routing juga memeriksa format error, panic recovery, dan agar detail internal tidak bocor. Jalankan seluruh unit test dengan `go test ./...`.
+Unit test service autentikasi tersedia dan menggunakan repository stub. Test service task memakai repository in-memory untuk memeriksa replay sequential, 64 request bersamaan, penggunaan ulang key dengan payload berbeda, dan expiry dengan clock test yang dapat dimajukan tanpa menunggu 24 jam. Test assignment memeriksa validasi anggota tim serta rollback bila penulisan notifikasi gagal. Unit test middleware dan routing juga memeriksa format error, panic recovery, dan agar detail internal tidak bocor. Jalankan seluruh unit test dengan `go test ./...`.
 
 ## Pengembangan
 

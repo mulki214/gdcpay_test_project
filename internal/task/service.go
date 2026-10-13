@@ -13,6 +13,7 @@ import (
 type Repository interface {
 	Create(context.Context, Task) (Task, error)
 	CreateIdempotent(context.Context, Task, uuid.UUID, [sha256.Size]byte, time.Time) (Task, error)
+	Assign(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (Task, error)
 	List(context.Context, uuid.UUID, ListFilter) ([]Task, int64, error)
 	GetByID(context.Context, uuid.UUID, uuid.UUID) (Task, error)
 	Update(context.Context, uuid.UUID, uuid.UUID, UpdateInput) (Task, error)
@@ -76,6 +77,13 @@ func normalizeCreateInput(input CreateInput) (CreateInput, error) {
 		return CreateInput{}, ErrInvalidInput
 	}
 	return input, nil
+}
+
+func (s *Service) Assign(ctx context.Context, ownerID, taskID, assigneeID uuid.UUID) (Task, error) {
+	if assigneeID == uuid.Nil || assigneeID == ownerID {
+		return Task{}, ErrInvalidAssignee
+	}
+	return s.repository.Assign(ctx, ownerID, taskID, assigneeID)
 }
 
 func (s *Service) List(ctx context.Context, ownerID uuid.UUID, filter ListFilter) (Page, error) {
