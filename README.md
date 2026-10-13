@@ -4,6 +4,8 @@ REST API multi-user untuk mengelola task. Backend menggunakan Go dan Gin, dengan
 
 ## Menjalankan dengan Docker
 
+Compose adalah environment development lokal. File `.env` hanya untuk nilai lokal dan tidak boleh di-commit.
+
 Pastikan Docker Engine dan Docker Compose tersedia, lalu jalankan:
 
 ```sh
@@ -44,14 +46,42 @@ Atur `DATABASE_URL` agar mengarah ke PostgreSQL yang sedang berjalan. Migrasi ta
 | --- | --- | --- |
 | `APP_ENV` | `development` | Nama lingkungan aplikasi |
 | `HTTP_ADDR` | `:8080` | Alamat bind HTTP server |
+| `PORT` | `8080` | Fallback port yang digunakan platform hosting; `HTTP_ADDR` jika disetel memiliki prioritas |
 | `DATABASE_URL` | wajib | PostgreSQL connection URL |
 | `JWT_SECRET` | wajib, minimum 32 byte | Secret untuk menandatangani JWT |
 | `JWT_TTL` | `15m` | Masa berlaku access token, format Go duration |
-| `PORT` | `8080` | Port host yang dipetakan Compose |
+| `PORT` | `8080` | Port host yang dipetakan Compose dan fallback port aplikasi |
 | `POSTGRES_PORT` | `5432` | Port PostgreSQL yang dipetakan ke host |
 | `POSTGRES_DB` | `taskapp` | Nama database Compose |
 | `POSTGRES_USER` | `taskapp` | User PostgreSQL Compose |
 | `POSTGRES_PASSWORD` | `taskapp` | Password PostgreSQL Compose |
+
+### Pemisahan environment
+
+| Environment | Branch | Cara menjalankan | Sumber konfigurasi |
+| --- | --- | --- | --- |
+| Development | `development` dan branch fitur | Jalankan Compose di komputer lokal untuk pengujian manual | `.env` lokal dari `.env.example` |
+| Production | `main` | GitHub Actions memicu deployment setelah pemeriksaan berhasil | Environment variables dan secrets pada platform hosting |
+
+Jangan menyimpan `DATABASE_URL` produksi atau `JWT_SECRET` produksi di repository. Pada production, set `APP_ENV=production`; aplikasi akan memakai Gin release mode. Jika platform menyediakan `PORT`, aplikasi akan bind ke port tersebut. `HTTP_ADDR` dapat dipakai untuk override eksplisit.
+
+### Branch dan GitHub Actions
+
+`development` dibuat dari `main` sebagai branch dasar pengembangan. Untuk setiap perubahan, buat branch `feature/<nama>` atau `fix/<nama>` dari `development`, uji di lokal, lalu gabungkan ke `development`. Setelah siap dirilis, gabungkan `development` ke `main`.
+
+Workflow di `.github/workflows/ci.yml` menjalankan `go test ./...` dan membangun Docker image pada push serta pull request ke `development`/`main`. Deployment hanya dipicu oleh push ke `main`, dan hanya jika variable repository `RENDER_DEPLOY_ENABLED` bernilai `true`.
+
+Untuk mengaktifkan deployment Render:
+
+1. Buat Web Service berbasis Docker dari repository ini, pilih branch `main`, dan matikan auto deploy agar deployment dikendalikan GitHub Actions.
+2. Tambahkan GitHub Environment bernama `production`.
+3. Tambahkan secret `RENDER_DEPLOY_HOOK_URL` pada environment `production` menggunakan URL deploy hook dari pengaturan Render.
+4. Tambahkan repository variable `RENDER_DEPLOY_ENABLED=true`.
+5. Atur `APP_ENV=production`, `DATABASE_URL`, dan `JWT_SECRET` pada environment Render. Render menyediakan `PORT` secara otomatis.
+
+Pipeline membangun image untuk memastikan Dockerfile valid; Render membangun image dari branch `main` saat deploy hook dipanggil. Langkah deploy hanya mengirim permintaan untuk memulai deployment; status akhirnya tetap perlu dipantau dari dashboard Render.
+
+Free service Render akan tidur setelah 15 menit tanpa trafik, sehingga request pertama setelah idle dapat lambat. Render menyatakan free instance ditujukan untuk pengujian/hobby dan tidak menyarankannya untuk production. Gunakan PostgreSQL managed eksternal; Free PostgreSQL Render kedaluwarsa setelah 30 hari. Paket gratis Supabase juga dapat menjeda project setelah aktivitas rendah. Sesuaikan ekspektasi uptime dan penyimpanan data dengan batas paket gratis.
 
 ## Endpoint yang tersedia
 
@@ -99,6 +129,7 @@ Migration tabel users berjalan otomatis ketika API mulai. Password disimpan dala
 - `internal/middleware` menyediakan request ID, structured access log, panic recovery, dan JWT bearer authentication reusable.
 - `internal/response` menyediakan format error JSON bersama.
 - `compose.yaml` menjalankan API dan PostgreSQL untuk development lokal.
+- `.github/workflows/ci.yml` menjalankan pemeriksaan CI dan memicu deployment production dari `main`.
 
 Alur fitur akan mengikuti `handler → service → repository → PostgreSQL`. Layer service dan repository akan ditambahkan bersama fitur agar interface dan abstraksinya mengikuti kebutuhan nyata.
 
@@ -111,6 +142,8 @@ Status **Belum** berarti belum diimplementasikan; item tersebut sengaja dicatat 
 | Go backend dan framework Gin | Selesai | `go.mod`, `cmd/api`, `internal/httpapi` |
 | PostgreSQL | Sebagian | Pool, migrasi, tabel users/tasks, repository autentikasi dan task, serta readiness tersedia; fitur idempotency dan assign menyusul |
 | Docker deployment | Sebagian | `Dockerfile`, `compose.yaml`; deployment image perlu dikonfigurasi sesuai platform |
+| Branch development dan production terpisah | Selesai | Branch `development` untuk basis kerja; `main` untuk rilis production |
+| CI/CD GitHub Actions | Selesai | `.github/workflows/ci.yml`; verifikasi pada perubahan branch dan deploy hook hanya dari `main` jika diaktifkan |
 | Health check | Selesai | `GET /health` |
 | Readiness check termasuk PostgreSQL | Selesai | `GET /ready` |
 | Dokumentasi Swagger/OpenAPI untuk semua API | Sebagian | `/swagger/` dan `/openapi.yaml` mencakup health, auth, dan CRUD task; dokumentasi API fitur berikutnya menyusul |

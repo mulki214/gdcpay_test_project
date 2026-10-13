@@ -17,7 +17,7 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		AppEnv:      valueOrDefault("APP_ENV", "development"),
-		HTTPAddr:    valueOrDefault("HTTP_ADDR", ":8080"),
+		HTTPAddr:    valueOrDefault("HTTP_ADDR", ":"+valueOrDefault("PORT", "8080")),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 	}
